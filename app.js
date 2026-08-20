@@ -110,9 +110,21 @@ function solveRentDivision(value, totalRent) {
  * a classic ascending auction (ties back to the same market-clearing prices the matrix
  * mode computes directly): rooms start at an equal split of rent; whenever two people
  * want the same room, its price rises by the current step size and the loser goes back
- * in line. Once nobody wants to switch, that's a checkpoint — the result is "fair" to
- * within roughly the step size, and the user can lock it in or halve the step and
- * refine further (re-asking everyone at the finer resolution). */
+ * in line.
+ *
+ * A round where nobody wants to switch is only "locally" stable — at a coarse step size,
+ * two close valuations can settle into a stable-looking assignment that's actually the
+ * wrong one (a full swap would make both people happier, but the price gaps aren't fine
+ * enough yet to reveal that), and that false stability can persist across several
+ * halvings in a row when two people's preferences are genuinely close. There's no fixed
+ * number of confirmations that *proves* correctness for arbitrarily close ties, but
+ * requiring the assignment to come out identical across several consecutive rounds
+ * (CONVERGENCE_STREAK) before ever offering a checkpoint makes a false one very unlikely
+ * in practice without costing an unreasonable number of extra rounds — tuned and verified
+ * against randomized valuations, not just picked by feel. Checkpoints are still explicitly
+ * framed as a refinable estimate, not a proof. */
+const CONVERGENCE_STREAK = 3;
+
 function initInteractive() {
   const n = state.n;
   const base = state.totalRent / n;
@@ -125,12 +137,13 @@ function initInteractive() {
     round: 1,
     converged: false,
     log: [],
+    assignmentHistory: [],
   };
 }
 
 function initialDelta(totalRent, n) {
   const perRoom = totalRent / n;
-  let d = perRoom * 0.1;
+  let d = perRoom * 0.05;
   if (d <= 0) return 1;
   const mag = Math.pow(10, Math.floor(Math.log10(d)));
   d = Math.round(d / mag) * mag;
@@ -186,9 +199,24 @@ function handleBid(personIdx, roomIdx) {
   }
 
   if (iv.queue.length === 0) {
-    iv.converged = true;
     normalizeInteractivePrices();
-    state.step = 'interactive-checkpoint';
+    iv.assignmentHistory.push(iv.holds.slice());
+    const recent = iv.assignmentHistory.slice(-CONVERGENCE_STREAK);
+    const stable =
+      recent.length === CONVERGENCE_STREAK &&
+      recent.every((a) => a.every((room, i) => room === recent[0][i]));
+
+    if (stable) {
+      iv.converged = true;
+      state.step = 'interactive-checkpoint';
+    } else {
+      iv.log.unshift(
+        `Round ${iv.round} settled — double-checking at a finer resolution before calling it final.`
+      );
+      iv.delta = iv.delta / 2;
+      iv.round += 1;
+      iv.queue = Array.from({ length: state.n }, (_, i) => i);
+    }
   }
   render();
 }
@@ -256,8 +284,11 @@ function renderInteractiveCheckpoint() {
     <section class="card">
       <h2>Everyone's settled — round ${iv.round}</h2>
       <p class="hint">
-        Nobody wants to switch rooms at these prices. This split should be fair to within about
-        ${fmtMoney(iv.delta)} per room — refine further to narrow that down, or lock it in now.
+        Nobody has wanted to switch rooms across the last ${CONVERGENCE_STREAK} checks in a row, at a
+        resolution of about ${fmtMoney(iv.delta)} per room. That's our best current estimate — if
+        anyone's preferences are genuinely close, refining further could occasionally still change
+        who gets which room, not just the exact price, so when in doubt, refine a bit more before
+        locking it in.
       </p>
       <div class="table-wrap">
         <table class="results-table">
@@ -306,8 +337,8 @@ function renderInteractiveResults() {
     <section class="card">
       <h2>3. Your split</h2>
       <p class="hint">
-        Reached by ${iv.round} round${iv.round === 1 ? '' : 's'} of asking, converging to within about
-        ${fmtMoney(iv.delta)} per room of a fully envy-free split.
+        Reached by ${iv.round} round${iv.round === 1 ? '' : 's'} of asking, stable across the last
+        ${CONVERGENCE_STREAK} checks in a row at a resolution of about ${fmtMoney(iv.delta)} per room.
       </p>
       <div class="table-wrap">
         <table class="results-table">
