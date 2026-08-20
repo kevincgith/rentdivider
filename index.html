@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rent Divider</title>
+  <meta name="description" content="Split rent fairly among roommates with an envy-free room and price assignment.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <h1>Rent Divider</h1>
+    <p class="tagline">Split rent so nobody envies anyone else's room.</p>
+  </header>
+
+  <main id="app" class="app"></main>
+
+  <footer class="site-footer">
+    <p>
+      Every roommate splits the total rent across the rooms the way they value them. This tool finds
+      the room assignment that maximizes everyone's combined satisfaction, then prices each room so
+      that no one would rather trade rooms (and rent) with anyone else &mdash; an
+      <em>envy-free</em> split, in the spirit of
+      <a href="https://blogs.cornell.edu/info2040/2018/10/24/how-to-divide-your-rent-fairly/" target="_blank" rel="noopener">Francis Su's Sperner's-lemma rent-division method</a>
+      and the
+      <a href="https://www.nytimes.com/interactive/2014/science/rent-division-calculator.html" target="_blank" rel="noopener">New York Times rent calculator</a>.
+    </p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
