@@ -93,7 +93,11 @@ function solveRentDivision(value, totalRent) {
 
   const priceSum = roomPrice.reduce((a, b) => a + b, 0);
   const shift = (totalRent - priceSum) / n;
-  const finalPrice = distributeCents(roomPrice.map((p) => p + shift), totalRent);
+  // With very lopsided valuations, the strict envy-free price for the worst room can be
+  // negative (its occupant would need to be paid). Real rent can't go below $0, so any
+  // shortfall like that is floored and pulled back from the other rooms instead — a
+  // deliberate, small trade against perfect envy-freeness in that rare case.
+  const finalPrice = rebalanceToFloor(roomPrice.map((p) => p + shift), totalRent);
   const finalPersonPotential = personPotential.map((p) => p - shift);
 
   return {
@@ -154,7 +158,7 @@ function normalizeInteractivePrices() {
   const iv = state.interactive;
   const sum = iv.prices.reduce((a, b) => a + b, 0);
   const shift = (state.totalRent - sum) / state.n;
-  iv.prices = distributeCents(iv.prices.map((p) => p + shift), state.totalRent);
+  iv.prices = rebalanceToFloor(iv.prices.map((p) => p + shift), state.totalRent);
 }
 
 /* Rent is a fixed pie: raising one room's price has to come from somewhere. Spreading the
@@ -162,13 +166,16 @@ function normalizeInteractivePrices() {
  * room's price climb on its own, to be reconciled only once at the end) keeps prices summing
  * to the total rent at every single step — not just at checkpoints — so what's on screen is
  * always a valid, budget-balanced split, and no single room can run away unchecked while the
- * correction is deferred. */
+ * correction is deferred. No room's price is allowed below $0 either: if enough conflicts
+ * pile onto one room, the rooms funding the decrease floor out at $0 instead of going
+ * negative, and rebalanceToFloor pulls any remaining shortfall from whichever rooms still
+ * have room above $0. */
 function bumpRoomPrice(roomIdx, delta) {
   const iv = state.interactive;
   const n = iv.prices.length;
   const share = delta / (n - 1);
   const raw = iv.prices.map((p, k) => (k === roomIdx ? p + delta : p - share));
-  iv.prices = distributeCents(raw, state.totalRent);
+  iv.prices = rebalanceToFloor(raw, state.totalRent);
 }
 
 function handleBid(personIdx, roomIdx) {
@@ -239,11 +246,11 @@ function renderInteractiveTurn() {
       const isHeldByRow = iv.holds[i] === j;
       if (isActive) {
         cells += `<td><button class="room-choice-cell ${isHeldByRow ? 'current' : ''}" data-room="${j}">
-          ${fmtMoney(iv.prices[j])}${isHeldByRow ? '<span class="tag">yours now</span>' : ''}
+          ${fmtMoney(iv.prices[j])}<span class="tag">${isHeldByRow ? 'yours now' : ''}</span>
         </button></td>`;
       } else {
         cells += `<td class="matrix-cell ${isHeldByRow ? 'held-cell' : ''}">
-          ${fmtMoney(iv.prices[j])}${isHeldByRow ? '<span class="tag">has this</span>' : ''}
+          ${fmtMoney(iv.prices[j])}<span class="tag">${isHeldByRow ? 'has this' : ''}</span>
         </td>`;
       }
     }
@@ -423,6 +430,40 @@ function distributeCents(amounts, targetTotal) {
     }
   }
   return cents.map((c) => c / 100);
+}
+
+/* No room's rent should go below $0. A raw computation (a big shift, or a room repeatedly
+ * absorbing decreases from conflicts elsewhere) can push a price negative; when that
+ * happens, floor it at 0 and pull the shortfall back proportionally from every room that's
+ * still above 0, repeating until nothing is negative. Sum stays exactly totalRent throughout
+ * (each floored amount is fully re-collected from the rest), and this always terminates
+ * within n passes since each pass permanently floors at least one more room. */
+function rebalanceToFloor(rawAmounts, totalRent) {
+  const n = rawAmounts.length;
+  let amounts = rawAmounts.slice();
+  const floored = new Array(n).fill(false);
+
+  for (let pass = 0; pass < n; pass++) {
+    let deficit = 0;
+    for (let i = 0; i < n; i++) {
+      if (amounts[i] < 0) {
+        deficit += -amounts[i];
+        amounts[i] = 0;
+        floored[i] = true;
+      }
+    }
+    if (deficit <= 1e-9) break;
+
+    let donorTotal = 0;
+    for (let i = 0; i < n; i++) if (!floored[i]) donorTotal += amounts[i];
+    if (donorTotal <= 1e-9) break; // nothing left to take from (only possible if totalRent itself is ~0)
+
+    for (let i = 0; i < n; i++) {
+      if (!floored[i]) amounts[i] -= deficit * (amounts[i] / donorTotal);
+    }
+  }
+
+  return distributeCents(amounts, totalRent);
 }
 
 function renderSetup() {

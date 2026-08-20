@@ -41,13 +41,20 @@ happened to type in, so the app doesn't ask anyone's numbers to sum to anything:
    prices at which each person's assigned room is at least as good a deal as any other room, for
    them. They're only defined up to a constant shift (shifting every price up and subtracting the
    same amount from every person's surplus doesn't change who envies whom), so the app shifts them
-   so the room prices sum to exactly the total rent, then rounds to the cent using a
-   largest-remainder allocation so the displayed prices always visibly add up to the total too.
+   so the room prices sum to exactly the total rent, then floors any room below $0 (pulling the
+   shortfall back proportionally from the other rooms — see `rebalanceToFloor` in `app.js`) and
+   rounds to the cent using a largest-remainder allocation so the displayed prices always visibly
+   add up to the total too.
 
 The result is a room assignment and a price per room that is simultaneously:
 - **Efficient** — maximizes total reported satisfaction,
-- **Envy-free** — nobody would trade rooms (and prices) with anyone else, and
-- **Budget-balanced** — the prices add up to exactly the total rent.
+- **Envy-free** — nobody would trade rooms (and prices) with anyone else, in the common case where
+  the true envy-free prices are all non-negative. (With very lopsided valuations the strict
+  envy-free price for the worst room can technically be negative — its occupant would need to be
+  paid — but real rent can't go below $0, so that case is floored at the cost of a small amount of
+  residual envy for that one room rather than showing a negative dollar amount.)
+- **Budget-balanced** — the prices add up to exactly the total rent, always, including after that
+  floor is applied.
 
 ### Mode 2: ask one at a time, solve by ascending auction
 
@@ -60,9 +67,10 @@ triangulation grid is after. It runs a classic ascending auction for assignment 
 3. If a room is unclaimed, they get it. If someone else already holds it, the asker "outbids"
    them: that room's price rises by the current step size, and — since rent is a fixed pie, not
    outside money — the offsetting decrease is spread evenly across every other room in the same
-   step. Prices sum to exactly the total rent after every single bid, not just once everything
-   settles, so what's on screen is always a valid split. The person who lost the room goes back in
-   line to pick again at the new prices.
+   step, floored at $0 (any shortfall past that floor is pulled back from whichever rooms still
+   have room above $0, so no room's price ever goes negative). Prices sum to exactly the total rent
+   after every single bid, not just once everything settles, so what's on screen is always a valid
+   split. The person who lost the room goes back in line to pick again at the new prices.
 4. A round where nobody wants to switch is only *locally* stable — at a coarse step size, two
    people with close-but-different preferences can settle into a stable-looking pairing that's
    actually the wrong one (a full swap would make both of them happier, but the price gaps aren't

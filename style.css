@@ -242,6 +242,7 @@ input:focus {
 
 .tag {
   display: block;
+  min-height: 1.2em;
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--accent);
