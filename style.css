@@ -203,18 +203,6 @@ input:focus {
   white-space: nowrap;
 }
 
-.turn-tag {
-  display: inline-block;
-  margin-left: 0.5rem;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 0.7rem;
-  font-weight: 700;
-  vertical-align: middle;
-}
-
 .active-row {
   background: var(--good-bg);
 }
@@ -248,25 +236,34 @@ input:focus {
   color: var(--accent);
 }
 
+/* The active row's cells hold a <button> instead of plain text. Its enclosing <td> drops
+ * the usual cell padding so the button itself — using the exact same padding, border width,
+ * and font size as a plain (inactive) cell — occupies exactly the space that cell would have,
+ * keeping every row the same height regardless of which row is currently active. */
+td.active-cell {
+  padding: 0;
+}
+
 .room-choice-cell {
+  display: block;
   width: 100%;
-  padding: 0.5rem 0.4rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card-bg);
-  font-size: 0.95rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid transparent;
+  font: inherit;
   font-weight: 700;
   color: var(--text);
+  text-align: center;
+  background: transparent;
   cursor: pointer;
 }
 
 .room-choice-cell:hover {
-  border-color: var(--accent);
+  background: var(--good-bg);
 }
 
 .room-choice-cell.current {
-  border-color: var(--accent);
-  background: var(--card-bg);
+  background: var(--good-bg);
+  color: var(--good-text);
 }
 
 .auction-log {

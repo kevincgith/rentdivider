@@ -245,7 +245,7 @@ function renderInteractiveTurn() {
     for (let j = 0; j < state.n; j++) {
       const isHeldByRow = iv.holds[i] === j;
       if (isActive) {
-        cells += `<td><button class="room-choice-cell ${isHeldByRow ? 'current' : ''}" data-room="${j}">
+        cells += `<td class="active-cell"><button class="room-choice-cell ${isHeldByRow ? 'current' : ''}" data-room="${j}">
           ${fmtMoney(iv.prices[j])}<span class="tag">${isHeldByRow ? 'yours now' : ''}</span>
         </button></td>`;
       } else {
@@ -255,7 +255,7 @@ function renderInteractiveTurn() {
       }
     }
     bodyRows += `<tr class="${isActive ? 'active-row' : 'inactive-row'}">
-      <th class="row-label">${escapeHtml(state.names[i])}${isActive ? '<span class="turn-tag">your turn</span>' : ''}</th>
+      <th class="row-label">${escapeHtml(state.names[i])}</th>
       ${cells}
     </tr>`;
   }
@@ -272,7 +272,6 @@ function renderInteractiveTurn() {
           <tbody>${bodyRows}</tbody>
         </table>
       </div>
-      <p class="hint running-total">Current prices always add up to the total rent: ${fmtMoney(iv.prices.reduce((a, b) => a + b, 0))} of ${fmtMoney(state.totalRent)}.</p>
       ${iv.log.length ? `<h3>What's happened so far</h3><ul class="auction-log">${iv.log.slice(0, 6).map((l) => `<li>${l}</li>`).join('')}</ul>` : ''}
       <div class="actions">
         <button class="secondary" id="start-over">Start over</button>
@@ -394,11 +393,11 @@ function renderInteractiveResults() {
 
 const state = {
   step: 'setup',
-  mode: 'matrix', // 'matrix' | 'interactive'
+  mode: 'interactive', // 'matrix' | 'interactive'
   n: 3,
   names: ['', '', ''],
   rooms: ['', '', ''],
-  totalRent: 3000,
+  totalRent: 10000,
   values: null, // values[i][j]
   interactive: null,
 };
