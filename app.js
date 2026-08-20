@@ -97,12 +97,21 @@ function solveRentDivision(value, totalRent) {
   // negative (its occupant would need to be paid). Real rent can't go below $0, so any
   // shortfall like that is floored and pulled back from the other rooms instead — a
   // deliberate, small trade against perfect envy-freeness in that rare case.
-  const finalPrice = rebalanceToFloor(roomPrice.map((p) => p + shift), totalRent);
+  //
+  // exactPrice is the true (unrounded) envy-free price vector — real people are sometimes
+  // *exactly* indifferent between two rooms, and rounding each room's price to the cent
+  // independently can break a tie in either direction (e.g. one room's price rounds down,
+  // the other's rounds up), making it look like someone envies a room they're actually just
+  // tied with. price is what people actually pay (has to be whole cents); exactPrice is what
+  // the envy-free verification math should use, so genuine ties display as ties.
+  const exactPrice = floorContinuous(roomPrice.map((p) => p + shift), totalRent);
+  const finalPrice = distributeCents(exactPrice, totalRent);
   const finalPersonPotential = personPotential.map((p) => p - shift);
 
   return {
     assignment, // assignment[i] = room index assigned to person i
-    price: finalPrice, // price[j] = rent for room j
+    price: finalPrice, // price[j] = rent for room j, rounded to the cent — what people pay
+    exactPrice, // unrounded price[j] — use this for envy/fairness verification math
     surplus: value.map((row, i) => row[assignment[i]] - finalPrice[assignment[i]]),
     personPotential: finalPersonPotential,
   };
@@ -437,7 +446,7 @@ function distributeCents(amounts, targetTotal) {
  * still above 0, repeating until nothing is negative. Sum stays exactly totalRent throughout
  * (each floored amount is fully re-collected from the rest), and this always terminates
  * within n passes since each pass permanently floors at least one more room. */
-function rebalanceToFloor(rawAmounts, totalRent) {
+function floorContinuous(rawAmounts, totalRent) {
   const n = rawAmounts.length;
   let amounts = rawAmounts.slice();
   const floored = new Array(n).fill(false);
@@ -462,7 +471,11 @@ function rebalanceToFloor(rawAmounts, totalRent) {
     }
   }
 
-  return distributeCents(amounts, totalRent);
+  return amounts;
+}
+
+function rebalanceToFloor(rawAmounts, totalRent) {
+  return distributeCents(floorContinuous(rawAmounts, totalRent), totalRent);
 }
 
 function renderSetup() {
@@ -660,11 +673,17 @@ function renderResults() {
   let checkRows = '';
   for (let i = 0; i < state.n; i++) {
     const assignedRoom = result.assignment[i];
+    // Uses exactPrice (pre-cent-rounding) rather than the displayed price: real people are
+    // sometimes exactly indifferent between two rooms, and independently rounding each
+    // room's price to the cent can break a true tie in either direction, making it look
+    // like someone envies a room they're actually just tied with.
+    const assignedUtility = normalizedValues[i][assignedRoom] - result.exactPrice[assignedRoom];
     let cells = '';
     for (let j = 0; j < state.n; j++) {
-      const utility = normalizedValues[i][j] - result.price[j];
+      const utility = normalizedValues[i][j] - result.exactPrice[j];
       const isAssigned = j === assignedRoom;
-      cells += `<td class="${isAssigned ? 'assigned' : ''}">${fmtMoney(utility)}</td>`;
+      const isTied = !isAssigned && utility >= assignedUtility - 0.005;
+      cells += `<td class="${isAssigned ? 'assigned' : ''}${isTied ? ' tied' : ''}">${fmtMoney(utility)}${isTied ? '<span class="tag">tied</span>' : ''}</td>`;
     }
     checkRows += `<tr><th class="row-label">${escapeHtml(state.names[i])}</th>${cells}</tr>`;
   }

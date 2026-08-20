@@ -373,6 +373,21 @@ tfoot .price {
   font-weight: 700;
 }
 
+.check-table td.tied {
+  background: var(--good-bg);
+  color: var(--good-text);
+  font-weight: 700;
+  opacity: 0.75;
+}
+
+.check-table .tag {
+  display: block;
+  min-height: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: inherit;
+}
+
 .site-footer {
   max-width: 860px;
   margin: 0 auto;
