@@ -123,6 +123,114 @@ input:focus {
   color: var(--text-muted);
 }
 
+.field-label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.mode-picker {
+  margin-bottom: 1.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.mode-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--good-bg);
+}
+
+.mode-option input {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
+.turn-banner {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  font-size: 1.05rem;
+  margin-bottom: 1.25rem;
+}
+
+.room-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.room-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  text-align: left;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.room-choice:hover {
+  border-color: var(--accent);
+}
+
+.room-choice.current {
+  border-color: var(--accent);
+  background: var(--good-bg);
+}
+
+.room-choice-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.room-choice-price {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.held-by {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.auction-log {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 1.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.auction-log li {
+  padding: 0.4rem 0.6rem;
+  background: var(--bg);
+  border-radius: 6px;
+}
+
 button {
   font-size: 0.95rem;
   padding: 0.6rem 1.1rem;

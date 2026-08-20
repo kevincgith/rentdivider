@@ -88,15 +88,232 @@ function solveRentDivision(value, totalRent) {
   };
 }
 
+/* ---------- Interactive (ascending-auction) mode ----------
+ * Instead of asking everyone to fill in a full valuation matrix up front, this mode
+ * elicits only ordinal choices: at the current prices, which room do you want? It runs
+ * a classic ascending auction (ties back to the same market-clearing prices the matrix
+ * mode computes directly): rooms start at an equal split of rent; whenever two people
+ * want the same room, its price rises by the current step size and the loser goes back
+ * in line. Once nobody wants to switch, that's a checkpoint — the result is "fair" to
+ * within roughly the step size, and the user can lock it in or halve the step and
+ * refine further (re-asking everyone at the finer resolution). */
+function initInteractive() {
+  const n = state.n;
+  const base = state.totalRent / n;
+  state.interactive = {
+    prices: new Array(n).fill(base),
+    owner: new Array(n).fill(-1), // room index -> person index, -1 = unclaimed
+    holds: new Array(n).fill(-1), // person index -> room index, -1 = none yet
+    queue: Array.from({ length: n }, (_, i) => i),
+    delta: initialDelta(state.totalRent, n),
+    round: 1,
+    converged: false,
+    log: [],
+  };
+}
+
+function initialDelta(totalRent, n) {
+  const perRoom = totalRent / n;
+  let d = perRoom * 0.1;
+  if (d <= 0) return 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(d)));
+  d = Math.round(d / mag) * mag;
+  return Math.max(d, 1);
+}
+
+function normalizeInteractivePrices() {
+  const iv = state.interactive;
+  const sum = iv.prices.reduce((a, b) => a + b, 0);
+  const shift = (state.totalRent - sum) / state.n;
+  iv.prices = iv.prices.map((p) => p + shift);
+}
+
+function handleBid(personIdx, roomIdx) {
+  const iv = state.interactive;
+  const heldRoom = iv.holds[personIdx];
+
+  if (roomIdx === heldRoom) {
+    iv.queue.shift();
+    iv.log.unshift(`${state.names[personIdx]} is happy staying with ${state.rooms[roomIdx]}.`);
+  } else if (iv.owner[roomIdx] === -1) {
+    if (heldRoom !== -1) iv.owner[heldRoom] = -1;
+    iv.owner[roomIdx] = personIdx;
+    iv.holds[personIdx] = roomIdx;
+    iv.queue.shift();
+    iv.log.unshift(`${state.names[personIdx]} takes ${state.rooms[roomIdx]} at ${fmtMoney(iv.prices[roomIdx])}.`);
+  } else {
+    const loser = iv.owner[roomIdx];
+    iv.prices[roomIdx] += iv.delta;
+    iv.holds[loser] = -1;
+    if (heldRoom !== -1) iv.owner[heldRoom] = -1;
+    iv.owner[roomIdx] = personIdx;
+    iv.holds[personIdx] = roomIdx;
+    iv.queue.shift();
+    iv.queue.push(loser);
+    iv.log.unshift(
+      `${state.names[personIdx]} outbids ${state.names[loser]} for ${state.rooms[roomIdx]} — price rises to ${fmtMoney(iv.prices[roomIdx])}.`
+    );
+  }
+
+  if (iv.queue.length === 0) {
+    iv.converged = true;
+    normalizeInteractivePrices();
+    state.step = 'interactive-checkpoint';
+  }
+  render();
+}
+
+function renderInteractiveTurn() {
+  const iv = state.interactive;
+  const personIdx = iv.queue[0];
+  const root = el('app');
+
+  let buttons = '';
+  for (let j = 0; j < state.n; j++) {
+    const isHeld = iv.holds[personIdx] === j;
+    const heldBy = iv.owner[j];
+    const occupant = heldBy !== -1 && heldBy !== personIdx ? ` <span class="held-by">(currently ${escapeHtml(state.names[heldBy])})</span>` : '';
+    buttons += `
+      <button class="room-choice ${isHeld ? 'current' : ''}" data-room="${j}">
+        <span class="room-choice-name">${escapeHtml(state.rooms[j])}${isHeld ? ' (yours now)' : ''}</span>
+        <span class="room-choice-price">${fmtMoney(iv.prices[j])}</span>
+        ${occupant}
+      </button>`;
+  }
+
+  root.innerHTML = `
+    <section class="card">
+      <h2>2. Ask each roommate</h2>
+      <p class="hint">Round ${iv.round} · ${iv.queue.length} ${iv.queue.length === 1 ? 'person' : 'people'} left to ask this pass.</p>
+      <div class="turn-banner">
+        <strong>${escapeHtml(state.names[personIdx])}</strong>, at these prices, which room would you take?
+      </div>
+      <div class="room-choices">${buttons}</div>
+      ${iv.log.length ? `<h3>What's happened so far</h3><ul class="auction-log">${iv.log.slice(0, 6).map((l) => `<li>${l}</li>`).join('')}</ul>` : ''}
+      <div class="actions">
+        <button class="secondary" id="start-over">Start over</button>
+      </div>
+    </section>
+  `;
+
+  root.querySelectorAll('.room-choice').forEach((btn) => {
+    btn.addEventListener('click', () => handleBid(personIdx, Number(btn.dataset.room)));
+  });
+  el('start-over').addEventListener('click', () => {
+    state.step = 'setup';
+    state.interactive = null;
+    render();
+  });
+}
+
+function renderInteractiveCheckpoint() {
+  const iv = state.interactive;
+  const root = el('app');
+
+  let rows = '';
+  for (let i = 0; i < state.n; i++) {
+    const room = iv.holds[i];
+    rows += `<tr>
+      <td>${escapeHtml(state.names[i])}</td>
+      <td>${escapeHtml(state.rooms[room])}</td>
+      <td class="price">${fmtMoney(iv.prices[room])}</td>
+    </tr>`;
+  }
+  const priceSum = iv.prices.reduce((a, b) => a + b, 0);
+
+  root.innerHTML = `
+    <section class="card">
+      <h2>Everyone's settled — round ${iv.round}</h2>
+      <p class="hint">
+        Nobody wants to switch rooms at these prices. This split should be fair to within about
+        ${fmtMoney(iv.delta)} per room — refine further to narrow that down, or lock it in now.
+      </p>
+      <div class="table-wrap">
+        <table class="results-table">
+          <thead><tr><th>Roommate</th><th>Gets</th><th>Pays / month</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr><th colspan="2">Total</th><th class="price">${fmtMoney(priceSum)}</th></tr></tfoot>
+        </table>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="refine">Refine further (±${fmtMoney(iv.delta / 2)})</button>
+        <button class="primary" id="use-split">Use this split →</button>
+      </div>
+    </section>
+  `;
+
+  el('refine').addEventListener('click', () => {
+    iv.delta = iv.delta / 2;
+    iv.round += 1;
+    iv.queue = Array.from({ length: state.n }, (_, i) => i);
+    iv.converged = false;
+    state.step = 'interactive-turn';
+    render();
+  });
+  el('use-split').addEventListener('click', () => {
+    state.step = 'interactive-results';
+    render();
+  });
+}
+
+function renderInteractiveResults() {
+  const iv = state.interactive;
+  const root = el('app');
+
+  let rows = '';
+  for (let i = 0; i < state.n; i++) {
+    const room = iv.holds[i];
+    rows += `<tr>
+      <td>${escapeHtml(state.names[i])}</td>
+      <td>${escapeHtml(state.rooms[room])}</td>
+      <td class="price">${fmtMoney(iv.prices[room])}</td>
+    </tr>`;
+  }
+  const priceSum = iv.prices.reduce((a, b) => a + b, 0);
+
+  root.innerHTML = `
+    <section class="card">
+      <h2>3. Your split</h2>
+      <p class="hint">
+        Reached by ${iv.round} round${iv.round === 1 ? '' : 's'} of asking, converging to within about
+        ${fmtMoney(iv.delta)} per room of a fully envy-free split.
+      </p>
+      <div class="table-wrap">
+        <table class="results-table">
+          <thead><tr><th>Roommate</th><th>Gets</th><th>Pays / month</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr><th colspan="2">Total</th><th class="price">${fmtMoney(priceSum)}</th></tr></tfoot>
+        </table>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="keep-refining">← Keep refining</button>
+        <button class="secondary" id="start-over">Start over</button>
+      </div>
+    </section>
+  `;
+
+  el('keep-refining').addEventListener('click', () => {
+    state.step = 'interactive-checkpoint';
+    render();
+  });
+  el('start-over').addEventListener('click', () => {
+    state.step = 'setup';
+    state.interactive = null;
+    render();
+  });
+}
+
 /* ---------------- UI state & wiring ---------------- */
 
 const state = {
   step: 'setup',
+  mode: 'matrix', // 'matrix' | 'interactive'
   n: 3,
   names: ['', '', ''],
   rooms: ['', '', ''],
   totalRent: 3000,
   values: null, // values[i][j]
+  interactive: null,
 };
 
 const el = (id) => document.getElementById(id);
@@ -125,7 +342,20 @@ function renderSetup() {
         </label>
       </div>
       <div id="names-grid" class="names-grid"></div>
-      <button class="primary" id="next-to-values">Next: enter valuations →</button>
+
+      <div class="mode-picker">
+        <span class="field-label">How do you want to figure out the split?</span>
+        <label class="mode-option">
+          <input type="radio" name="mode" value="matrix" ${state.mode === 'matrix' ? 'checked' : ''}>
+          <span><strong>I'll enter valuations myself</strong> — a quick grid, everyone types how much each room is worth to them.</span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="mode" value="interactive" ${state.mode === 'interactive' ? 'checked' : ''}>
+          <span><strong>Ask us one at a time</strong> — no numbers to type; each roommate just picks their favorite room at the current prices, and prices adjust until nobody wants to switch.</span>
+        </label>
+      </div>
+
+      <button class="primary" id="next-step">Next →</button>
     </section>
   `;
 
@@ -172,15 +402,26 @@ function renderSetup() {
     state.totalRent = Number(e.target.value) || 0;
   });
 
-  el('next-to-values').addEventListener('click', () => {
+  root.querySelectorAll('input[name="mode"]').forEach((input) => {
+    input.addEventListener('change', (e) => {
+      state.mode = e.target.value;
+    });
+  });
+
+  el('next-step').addEventListener('click', () => {
     for (let i = 0; i < state.n; i++) {
       if (!state.names[i].trim()) state.names[i] = `Roommate ${i + 1}`;
       if (!state.rooms[i].trim()) state.rooms[i] = `Room ${i + 1}`;
     }
-    if (!state.values || state.values.length !== state.n) {
-      state.values = Array.from({ length: state.n }, () => new Array(state.n).fill(0));
+    if (state.mode === 'matrix') {
+      if (!state.values || state.values.length !== state.n) {
+        state.values = Array.from({ length: state.n }, () => new Array(state.n).fill(0));
+      }
+      state.step = 'values';
+    } else {
+      initInteractive();
+      state.step = 'interactive-turn';
     }
-    state.step = 'values';
     render();
   });
 }
@@ -365,6 +606,9 @@ function render() {
   if (state.step === 'setup') renderSetup();
   else if (state.step === 'values') renderValues();
   else if (state.step === 'results') renderResults();
+  else if (state.step === 'interactive-turn') renderInteractiveTurn();
+  else if (state.step === 'interactive-checkpoint') renderInteractiveCheckpoint();
+  else if (state.step === 'interactive-results') renderInteractiveResults();
 }
 
 document.addEventListener('DOMContentLoaded', render);

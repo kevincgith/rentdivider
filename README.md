@@ -3,10 +3,16 @@
 A small static web app for splitting rent fairly among roommates: it finds room prices such
 that nobody would rather have someone else's room at that room's price.
 
-Try it: enter the roommates, the rooms, and the total rent, then have each roommate spread the
-total rent across the rooms the way they honestly value living in each one (each roommate's row
-has to add up to the total). The app finds the room assignment that maximizes everyone's combined
-satisfaction and prices each room so the result is **envy-free**.
+Enter the roommates, the rooms, and the total rent, then pick one of two ways to work out
+everyone's preferences:
+
+- **Enter valuations myself** — a grid where each roommate types how much every room is worth to
+  them (each row has to add up to the total rent).
+- **Ask us one at a time** — no numbers to type. Each roommate just picks their favorite room at
+  the current asking prices, in turn, and the prices adjust until nobody wants to switch.
+
+Either way, the app finds a room assignment and a price per room that is **envy-free**: nobody
+would rather have someone else's room at that room's price.
 
 ## The math
 
@@ -17,9 +23,10 @@ and implemented interactively in the
 Su's method finds market-clearing prices by iteratively querying people about a triangulated grid
 of candidate prices and converging via a discrete fixed-point argument.
 
-This app solves the same problem exactly instead of iteratively, using the fact that when
-valuations are known up front, envy-free prices fall directly out of linear-programming duality
-for the assignment problem:
+### Mode 1: enter valuations, solve exactly
+
+When valuations are known up front, envy-free prices fall directly out of linear-programming
+duality for the assignment problem:
 
 1. Collect each roommate's value for every room, with each roommate's values summing to the total
    rent.
@@ -35,6 +42,26 @@ The result is a room assignment and a price per room that is simultaneously:
 - **Efficient** — maximizes total reported satisfaction,
 - **Envy-free** — nobody would trade rooms (and prices) with anyone else, and
 - **Budget-balanced** — the prices add up to exactly the total rent.
+
+### Mode 2: ask one at a time, solve by ascending auction
+
+This mode never asks anyone for a number — only "at these prices, which room do you want?" —
+which is a much lower-friction way to elicit the same information the NYT calculator's
+triangulation grid is after. It runs a classic ascending auction for assignment markets:
+
+1. All rooms start at an equal share of the rent.
+2. Roommates are asked, one at a time, which room they'd take at the current prices.
+3. If a room is unclaimed, they get it. If someone else already holds it, the asker "outbids"
+   them: that room's price rises by the current step size, and the person who lost it goes back
+   in line to pick again at the new prices.
+4. Once everyone is holding a room and nobody wants to switch, that's a checkpoint: the split is
+   fair to within roughly the current step size. The user can lock it in, or halve the step and
+   run another pass (starting from the current prices) for a tighter number — mirroring the "stop
+   here or keep refining" choice in the NYT tool.
+
+This is provably convergent for these unit-demand, quasilinear preferences (rent-division
+valuations satisfy the gross-substitutes condition), and it converges to the same market-clearing
+prices Mode 1 computes directly when the same underlying valuations are used to answer each round.
 
 ## Running it
 
