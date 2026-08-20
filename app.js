@@ -60,6 +60,22 @@ function hungarianMin(cost) {
   return { assignment: rowToCol, u: u.slice(1), v: v.slice(1) };
 }
 
+/* ---------- Turning raw budgets into comparable valuations ----------
+ * People naturally think in terms of "what's each room worth to me" or "what's my max
+ * budget per room" — those numbers have no reason to add up to the total rent, and forcing
+ * them to is confusing and artificial. What actually matters for finding a fair split is
+ * each person's *relative* valuation across rooms, not the absolute scale they happened to
+ * type in. So we scale each person's row proportionally to sum to the total rent — this
+ * preserves their relative preferences exactly while putting everyone on the same footing,
+ * which the assignment math requires to make interpersonal comparisons meaningful. */
+function normalizeValuations(values, totalRent) {
+  return values.map((row) => {
+    const sum = row.reduce((a, b) => a + b, 0);
+    if (sum <= 0) return row.map(() => totalRent / row.length);
+    return row.map((v) => (v / sum) * totalRent);
+  });
+}
+
 /* ---------- Rent division on top of the assignment problem ----------
  * value[i][j] = how much person i values room j (each row should sum to totalRent).
  * We maximize total value (minimize -value), then recover room prices from the
@@ -77,7 +93,7 @@ function solveRentDivision(value, totalRent) {
 
   const priceSum = roomPrice.reduce((a, b) => a + b, 0);
   const shift = (totalRent - priceSum) / n;
-  const finalPrice = roomPrice.map((p) => p + shift);
+  const finalPrice = distributeCents(roomPrice.map((p) => p + shift), totalRent);
   const finalPersonPotential = personPotential.map((p) => p - shift);
 
   return {
@@ -125,7 +141,7 @@ function normalizeInteractivePrices() {
   const iv = state.interactive;
   const sum = iv.prices.reduce((a, b) => a + b, 0);
   const shift = (state.totalRent - sum) / state.n;
-  iv.prices = iv.prices.map((p) => p + shift);
+  iv.prices = distributeCents(iv.prices.map((p) => p + shift), state.totalRent);
 }
 
 function handleBid(personIdx, roomIdx) {
@@ -322,8 +338,27 @@ function fmtMoney(x) {
   return x.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 }
 
-function clampCount(n) {
-  return Math.min(10, Math.max(2, Math.round(n) || 2));
+/* Rounds a list of dollar amounts to the nearest cent while keeping their sum exactly
+ * equal to targetTotal (to the cent) — otherwise independently-rounded room prices can
+ * visibly fail to add up (e.g. 933.33 + 933.33 + 1133.33 = 2999.99) even though the
+ * underlying, unrounded numbers are exact. Uses the largest-remainder method. */
+function distributeCents(amounts, targetTotal) {
+  const cents = amounts.map((a) => Math.round(a * 100));
+  const targetCents = Math.round(targetTotal * 100);
+  let diff = targetCents - cents.reduce((a, b) => a + b, 0);
+  if (diff !== 0) {
+    const order = amounts
+      .map((a, i) => ({ i, frac: a * 100 - Math.floor(a * 100) }))
+      .sort((a, b) => (diff > 0 ? b.frac - a.frac : a.frac - b.frac));
+    let remaining = Math.abs(diff);
+    let k = 0;
+    while (remaining > 0) {
+      cents[order[k % order.length].i] += diff > 0 ? 1 : -1;
+      remaining--;
+      k++;
+    }
+  }
+  return cents.map((c) => c / 100);
 }
 
 function renderSetup() {
@@ -333,15 +368,12 @@ function renderSetup() {
       <h2>1. The basics</h2>
       <div class="field-row">
         <label class="field">
-          <span>Number of roommates / rooms</span>
-          <input type="number" id="count" min="2" max="10" value="${state.n}">
-        </label>
-        <label class="field">
           <span>Total monthly rent</span>
           <input type="number" id="rent" min="0" step="1" value="${state.totalRent}">
         </label>
       </div>
       <div id="names-grid" class="names-grid"></div>
+      <button type="button" class="secondary" id="add-roommate">+ Add roommate</button>
 
       <div class="mode-picker">
         <span class="field-label">How do you want to figure out the split?</span>
@@ -364,7 +396,7 @@ function renderSetup() {
     namesGrid.innerHTML = '';
     const header = document.createElement('div');
     header.className = 'names-grid-row names-grid-header';
-    header.innerHTML = '<span>Roommate name</span><span>Room name</span>';
+    header.innerHTML = '<span>Roommate name</span><span>Room name</span><span></span>';
     namesGrid.appendChild(header);
     for (let i = 0; i < state.n; i++) {
       const row = document.createElement('div');
@@ -372,6 +404,7 @@ function renderSetup() {
       row.innerHTML = `
         <input type="text" data-idx="${i}" class="name-input" placeholder="Roommate ${i + 1}" value="${state.names[i] || ''}">
         <input type="text" data-idx="${i}" class="room-input" placeholder="Room ${i + 1}" value="${state.rooms[i] || ''}">
+        <button type="button" class="remove-roommate" data-idx="${i}" title="Remove roommate" ${state.n <= 2 ? 'disabled' : ''}>&times;</button>
       `;
       namesGrid.appendChild(row);
     }
@@ -385,16 +418,26 @@ function renderSetup() {
         state.rooms[Number(e.target.dataset.idx)] = e.target.value;
       });
     });
+    namesGrid.querySelectorAll('.remove-roommate').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        if (state.n <= 2) return;
+        const idx = Number(e.currentTarget.dataset.idx);
+        state.names.splice(idx, 1);
+        state.rooms.splice(idx, 1);
+        state.n -= 1;
+        renderNameInputs();
+      });
+    });
+    addBtn.disabled = state.n >= 10;
   }
+  const addBtn = el('add-roommate');
   renderNameInputs();
 
-  el('count').addEventListener('input', (e) => {
-    const n = clampCount(Number(e.target.value));
-    state.n = n;
-    while (state.names.length < n) state.names.push('');
-    while (state.rooms.length < n) state.rooms.push('');
-    state.names.length = n;
-    state.rooms.length = n;
+  addBtn.addEventListener('click', () => {
+    if (state.n >= 10) return;
+    state.names.push('');
+    state.rooms.push('');
+    state.n += 1;
     renderNameInputs();
   });
 
@@ -432,9 +475,11 @@ function renderValues() {
     <section class="card">
       <h2>2. Value each room</h2>
       <p class="hint">
-        Each roommate splits the full rent (${fmtMoney(state.totalRent)}) across every room the way
-        they'd honestly value living there. Higher = worth more to that person. Each row must add up
-        to the total rent.
+        For each room, enter roughly what it's worth to you — think "what would I be willing to pay
+        for this room" if you had to guess. Bigger numbers just mean "I want this more"; your row
+        doesn't need to add up to anything in particular. We automatically scale everyone's numbers
+        onto the same footing before comparing them, so only how you rank and weigh the rooms
+        relative to each other matters, not the raw scale you happened to type in.
       </p>
       <div class="table-wrap">
         <table id="values-table"></table>
@@ -475,9 +520,7 @@ function renderValues() {
   function updateRowTotal(i) {
     const cell = table.querySelector(`.row-total[data-row="${i}"]`);
     const sum = state.values[i].reduce((a, b) => a + b, 0);
-    cell.textContent = fmtMoney(sum);
-    cell.classList.toggle('balanced', Math.abs(sum - state.totalRent) < 0.005);
-    cell.classList.toggle('unbalanced', Math.abs(sum - state.totalRent) >= 0.005);
+    cell.textContent = sum > 0 ? fmtMoney(sum) : '—';
   }
 
   renderTable();
@@ -488,22 +531,14 @@ function renderValues() {
   });
 
   el('compute').addEventListener('click', () => {
-    const unbalanced = state.values
-      .map((row, i) => ({ i, sum: row.reduce((a, b) => a + b, 0) }))
-      .filter(({ sum }) => Math.abs(sum - state.totalRent) >= 0.005);
-    if (unbalanced.length > 0) {
-      const names = unbalanced.map(({ i }) => state.names[i]).join(', ');
-      showError(`Each row must add up to ${fmtMoney(state.totalRent)}. Fix: ${names}.`);
-      return;
-    }
-    clearError();
     state.step = 'results';
     render();
   });
 }
 
 function renderResults() {
-  const result = solveRentDivision(state.values, state.totalRent);
+  const normalizedValues = normalizeValuations(state.values, state.totalRent);
+  const result = solveRentDivision(normalizedValues, state.totalRent);
   const root = el('app');
 
   let rows = '';
@@ -521,10 +556,9 @@ function renderResults() {
   let checkRows = '';
   for (let i = 0; i < state.n; i++) {
     const assignedRoom = result.assignment[i];
-    const assignedUtility = state.values[i][assignedRoom] - result.price[assignedRoom];
     let cells = '';
     for (let j = 0; j < state.n; j++) {
-      const utility = state.values[i][j] - result.price[j];
+      const utility = normalizedValues[i][j] - result.price[j];
       const isAssigned = j === assignedRoom;
       cells += `<td class="${isAssigned ? 'assigned' : ''}">${fmtMoney(utility)}</td>`;
     }
@@ -578,22 +612,6 @@ function renderResults() {
     state.values = null;
     render();
   });
-}
-
-function showError(msg) {
-  let box = el('error-box');
-  if (!box) {
-    box = document.createElement('div');
-    box.id = 'error-box';
-    box.className = 'error-box';
-    el('app').prepend(box);
-  }
-  box.textContent = msg;
-}
-
-function clearError() {
-  const box = el('error-box');
-  if (box) box.remove();
 }
 
 function escapeHtml(str) {

@@ -6,8 +6,8 @@ that nobody would rather have someone else's room at that room's price.
 Enter the roommates, the rooms, and the total rent, then pick one of two ways to work out
 everyone's preferences:
 
-- **Enter valuations myself** — a grid where each roommate types how much every room is worth to
-  them (each row has to add up to the total rent).
+- **Enter valuations myself** — a grid where each roommate types roughly what every room is worth
+  to them (their own numbers, any scale — no need to add up to anything).
 - **Ask us one at a time** — no numbers to type. Each roommate just picks their favorite room at
   the current asking prices, in turn, and the prices adjust until nobody wants to switch.
 
@@ -25,18 +25,24 @@ of candidate prices and converging via a discrete fixed-point argument.
 
 ### Mode 1: enter valuations, solve exactly
 
-When valuations are known up front, envy-free prices fall directly out of linear-programming
-duality for the assignment problem:
+People naturally think in terms of "what's each room worth to me" or "what's my max budget per
+room" — numbers that have no reason to add up to the total rent. What actually matters for finding
+a fair split is each person's *relative* valuation across rooms, not the absolute scale they
+happened to type in, so the app doesn't ask anyone's numbers to sum to anything:
 
-1. Collect each roommate's value for every room, with each roommate's values summing to the total
-   rent.
-2. Find the room assignment that maximizes total value, via the
+1. Collect each roommate's raw value for every room, whatever scale they want.
+2. Scale each roommate's row proportionally so it sums to the total rent — this preserves their
+   relative preferences exactly (a room worth twice as much as another stays twice as much) while
+   putting everyone on the same footing, which is what makes comparing different people's numbers
+   meaningful in the next step.
+3. Find the room assignment that maximizes total value, via the
    [Hungarian algorithm](https://en.wikipedia.org/wiki/Hungarian_algorithm) (`app.js`).
-3. The Hungarian algorithm's dual variables are exactly a set of "market-clearing" room prices —
+4. The Hungarian algorithm's dual variables are exactly a set of "market-clearing" room prices —
    prices at which each person's assigned room is at least as good a deal as any other room, for
    them. They're only defined up to a constant shift (shifting every price up and subtracting the
    same amount from every person's surplus doesn't change who envies whom), so the app shifts them
-   so the room prices sum to exactly the total rent.
+   so the room prices sum to exactly the total rent, then rounds to the cent using a
+   largest-remainder allocation so the displayed prices always visibly add up to the total too.
 
 The result is a room assignment and a price per room that is simultaneously:
 - **Efficient** — maximizes total reported satisfaction,

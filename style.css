@@ -7,7 +7,6 @@
   --accent: #2f6f4f;
   --accent-hover: #245a3f;
   --danger: #b3261e;
-  --danger-bg: #fdecea;
   --good-bg: #e8f5ec;
   --good-text: #1e5c38;
   --radius: 10px;
@@ -109,18 +108,46 @@ input:focus {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.75rem;
 }
 
 .names-grid-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: center;
   gap: 0.75rem;
 }
 
 .names-grid-header span {
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+
+.remove-roommate {
+  width: 2.1rem;
+  height: 2.1rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.remove-roommate:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.remove-roommate:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+#add-roommate {
+  margin-bottom: 1.5rem;
 }
 
 .field-label {
@@ -306,16 +333,7 @@ thead th {
 .row-total {
   font-weight: 600;
   white-space: nowrap;
-}
-
-.row-total.balanced {
-  color: var(--good-text);
-  background: var(--good-bg);
-}
-
-.row-total.unbalanced {
-  color: var(--danger);
-  background: var(--danger-bg);
+  color: var(--text-muted);
 }
 
 .results-table .price,
@@ -328,16 +346,6 @@ tfoot .price {
   background: var(--good-bg);
   color: var(--good-text);
   font-weight: 700;
-}
-
-.error-box {
-  background: var(--danger-bg);
-  color: var(--danger);
-  border: 1px solid var(--danger);
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1.25rem;
-  font-size: 0.9rem;
 }
 
 .site-footer {
@@ -354,9 +362,6 @@ tfoot .price {
 }
 
 @media (max-width: 520px) {
-  .names-grid-row {
-    grid-template-columns: 1fr;
-  }
   .actions {
     flex-direction: column-reverse;
   }
