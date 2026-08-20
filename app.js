@@ -226,27 +226,45 @@ function renderInteractiveTurn() {
   const personIdx = iv.queue[0];
   const root = el('app');
 
-  let buttons = '';
+  let headerCells = '<th></th>';
   for (let j = 0; j < state.n; j++) {
-    const isHeld = iv.holds[personIdx] === j;
-    const heldBy = iv.owner[j];
-    const occupant = heldBy !== -1 && heldBy !== personIdx ? ` <span class="held-by">(currently ${escapeHtml(state.names[heldBy])})</span>` : '';
-    buttons += `
-      <button class="room-choice ${isHeld ? 'current' : ''}" data-room="${j}">
-        <span class="room-choice-name">${escapeHtml(state.rooms[j])}${isHeld ? ' (yours now)' : ''}</span>
-        <span class="room-choice-price">${fmtMoney(iv.prices[j])}</span>
-        ${occupant}
-      </button>`;
+    headerCells += `<th>${escapeHtml(state.rooms[j])}<br><span class="col-price">${fmtMoney(iv.prices[j])}</span></th>`;
+  }
+
+  let bodyRows = '';
+  for (let i = 0; i < state.n; i++) {
+    const isActive = i === personIdx;
+    let cells = '';
+    for (let j = 0; j < state.n; j++) {
+      const isHeldByRow = iv.holds[i] === j;
+      if (isActive) {
+        cells += `<td><button class="room-choice-cell ${isHeldByRow ? 'current' : ''}" data-room="${j}">
+          ${fmtMoney(iv.prices[j])}${isHeldByRow ? '<span class="tag">yours now</span>' : ''}
+        </button></td>`;
+      } else {
+        cells += `<td class="matrix-cell ${isHeldByRow ? 'held-cell' : ''}">
+          ${fmtMoney(iv.prices[j])}${isHeldByRow ? '<span class="tag">has this</span>' : ''}
+        </td>`;
+      }
+    }
+    bodyRows += `<tr class="${isActive ? 'active-row' : 'inactive-row'}">
+      <th class="row-label">${escapeHtml(state.names[i])}${isActive ? '<span class="turn-tag">your turn</span>' : ''}</th>
+      ${cells}
+    </tr>`;
   }
 
   root.innerHTML = `
     <section class="card">
       <h2>2. Ask each roommate</h2>
-      <p class="hint">Round ${iv.round} · ${iv.queue.length} ${iv.queue.length === 1 ? 'person' : 'people'} left to ask this pass.</p>
-      <div class="turn-banner">
-        <strong>${escapeHtml(state.names[personIdx])}</strong>, at these prices, which room would you take?
+      <p class="hint">Round ${iv.round} · ${iv.queue.length} ${iv.queue.length === 1 ? 'person' : 'people'} left to ask this pass.
+        <strong>${escapeHtml(state.names[personIdx])}</strong>, which room would you take at these prices?
+      </p>
+      <div class="table-wrap">
+        <table class="turn-matrix">
+          <thead><tr>${headerCells}</tr></thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
       </div>
-      <div class="room-choices">${buttons}</div>
       <p class="hint running-total">Current prices always add up to the total rent: ${fmtMoney(iv.prices.reduce((a, b) => a + b, 0))} of ${fmtMoney(state.totalRent)}.</p>
       ${iv.log.length ? `<h3>What's happened so far</h3><ul class="auction-log">${iv.log.slice(0, 6).map((l) => `<li>${l}</li>`).join('')}</ul>` : ''}
       <div class="actions">
@@ -255,7 +273,7 @@ function renderInteractiveTurn() {
     </section>
   `;
 
-  root.querySelectorAll('.room-choice').forEach((btn) => {
+  root.querySelectorAll('.room-choice-cell').forEach((btn) => {
     btn.addEventListener('click', () => handleBid(personIdx, Number(btn.dataset.room)));
   });
   el('start-over').addEventListener('click', () => {

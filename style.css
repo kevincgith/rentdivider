@@ -185,60 +185,87 @@ input:focus {
   flex-shrink: 0;
 }
 
-.turn-banner {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.9rem 1rem;
-  font-size: 1.05rem;
-  margin-bottom: 1.25rem;
+.turn-matrix {
+  margin: 1rem 0;
 }
 
-.room-choices {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.75rem;
-  margin-bottom: 1.5rem;
+.turn-matrix thead th {
+  text-align: center;
 }
 
-.room-choice {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.25rem;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card-bg);
-  text-align: left;
+.col-price {
   font-weight: 400;
-  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.82rem;
 }
 
-.room-choice:hover {
-  border-color: var(--accent);
+.turn-matrix .row-label {
+  white-space: nowrap;
 }
 
-.room-choice.current {
-  border-color: var(--accent);
+.turn-tag {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.active-row {
   background: var(--good-bg);
 }
 
-.room-choice-name {
-  font-weight: 600;
-  font-size: 0.95rem;
+.active-row .row-label {
+  color: var(--good-text);
 }
 
-.room-choice-price {
-  font-size: 1.1rem;
-  font-weight: 700;
+.inactive-row {
+  color: var(--text-muted);
+}
+
+.inactive-row .row-label {
+  color: var(--text-muted);
+}
+
+.matrix-cell {
+  text-align: center;
+}
+
+.matrix-cell.held-cell {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tag {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
   color: var(--accent);
 }
 
-.held-by {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  font-weight: 400;
+.room-choice-cell {
+  width: 100%;
+  padding: 0.5rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.room-choice-cell:hover {
+  border-color: var(--accent);
+}
+
+.room-choice-cell.current {
+  border-color: var(--accent);
+  background: var(--card-bg);
 }
 
 .auction-log {
