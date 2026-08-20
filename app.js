@@ -144,6 +144,20 @@ function normalizeInteractivePrices() {
   iv.prices = distributeCents(iv.prices.map((p) => p + shift), state.totalRent);
 }
 
+/* Rent is a fixed pie: raising one room's price has to come from somewhere. Spreading the
+ * offsetting decrease evenly across every other room (instead of just letting the contested
+ * room's price climb on its own, to be reconciled only once at the end) keeps prices summing
+ * to the total rent at every single step — not just at checkpoints — so what's on screen is
+ * always a valid, budget-balanced split, and no single room can run away unchecked while the
+ * correction is deferred. */
+function bumpRoomPrice(roomIdx, delta) {
+  const iv = state.interactive;
+  const n = iv.prices.length;
+  const share = delta / (n - 1);
+  const raw = iv.prices.map((p, k) => (k === roomIdx ? p + delta : p - share));
+  iv.prices = distributeCents(raw, state.totalRent);
+}
+
 function handleBid(personIdx, roomIdx) {
   const iv = state.interactive;
   const heldRoom = iv.holds[personIdx];
@@ -159,7 +173,7 @@ function handleBid(personIdx, roomIdx) {
     iv.log.unshift(`${state.names[personIdx]} takes ${state.rooms[roomIdx]} at ${fmtMoney(iv.prices[roomIdx])}.`);
   } else {
     const loser = iv.owner[roomIdx];
-    iv.prices[roomIdx] += iv.delta;
+    bumpRoomPrice(roomIdx, iv.delta);
     iv.holds[loser] = -1;
     if (heldRoom !== -1) iv.owner[heldRoom] = -1;
     iv.owner[roomIdx] = personIdx;
@@ -167,7 +181,7 @@ function handleBid(personIdx, roomIdx) {
     iv.queue.shift();
     iv.queue.push(loser);
     iv.log.unshift(
-      `${state.names[personIdx]} outbids ${state.names[loser]} for ${state.rooms[roomIdx]} — price rises to ${fmtMoney(iv.prices[roomIdx])}.`
+      `${state.names[personIdx]} outbids ${state.names[loser]} for ${state.rooms[roomIdx]} — its price rises to ${fmtMoney(iv.prices[roomIdx])} (other rooms dip slightly to balance).`
     );
   }
 
@@ -205,6 +219,7 @@ function renderInteractiveTurn() {
         <strong>${escapeHtml(state.names[personIdx])}</strong>, at these prices, which room would you take?
       </div>
       <div class="room-choices">${buttons}</div>
+      <p class="hint running-total">Current prices always add up to the total rent: ${fmtMoney(iv.prices.reduce((a, b) => a + b, 0))} of ${fmtMoney(state.totalRent)}.</p>
       ${iv.log.length ? `<h3>What's happened so far</h3><ul class="auction-log">${iv.log.slice(0, 6).map((l) => `<li>${l}</li>`).join('')}</ul>` : ''}
       <div class="actions">
         <button class="secondary" id="start-over">Start over</button>

@@ -58,8 +58,11 @@ triangulation grid is after. It runs a classic ascending auction for assignment 
 1. All rooms start at an equal share of the rent.
 2. Roommates are asked, one at a time, which room they'd take at the current prices.
 3. If a room is unclaimed, they get it. If someone else already holds it, the asker "outbids"
-   them: that room's price rises by the current step size, and the person who lost it goes back
-   in line to pick again at the new prices.
+   them: that room's price rises by the current step size, and — since rent is a fixed pie, not
+   outside money — the offsetting decrease is spread evenly across every other room in the same
+   step. Prices sum to exactly the total rent after every single bid, not just once everything
+   settles, so what's on screen is always a valid split. The person who lost the room goes back in
+   line to pick again at the new prices.
 4. Once everyone is holding a room and nobody wants to switch, that's a checkpoint: the split is
    fair to within roughly the current step size. The user can lock it in, or halve the step and
    run another pass (starting from the current prices) for a tighter number — mirroring the "stop
