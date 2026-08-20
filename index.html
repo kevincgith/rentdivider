@@ -15,6 +15,106 @@
 
   <main id="app" class="app"></main>
 
+  <section class="app faq">
+    <div class="card">
+      <h2>Understanding your split</h2>
+      <p class="hint">
+        "Envy-free" is a precise mathematical term, and it doesn't always mean what it sounds
+        like at first glance. A few things worth knowing before you read too much into the
+        numbers.
+      </p>
+
+      <details>
+        <summary>Why do the two modes sometimes give different prices for the same preferences?</summary>
+        <div class="faq-body">
+          <p>
+            Because envy-free splits usually aren't unique. For a given room assignment, there's
+            typically a whole <em>range</em> of prices that are all simultaneously envy-free and
+            add up to the total rent &mdash; not just one right answer.
+          </p>
+          <p>
+            For example, with roommates valuing three rooms as (5000, 3000, 2000), (4500, 3000,
+            2500), and (3500, 3300, 3200) out of a $10,000 rent, the first room's envy-free price
+            can be anywhere from about $4,367 to $4,833 &mdash; a $466-wide range &mdash; and every
+            price in it is equally valid. "Enter valuations myself" always lands at one particular
+            point in that range (a property of how the underlying math is solved); "ask us one at
+            a time" lands wherever the back-and-forth bidding happens to settle, which is usually a
+            different point in the same range. Neither is more correct than the other.
+          </p>
+        </div>
+      </details>
+
+      <details>
+        <summary>A roommate said they'd pay more for my room than I'm paying &mdash; does that mean they envy me?</summary>
+        <div class="faq-body">
+          <p>
+            Not by itself. "Envy-free" doesn't mean nobody would have paid more for your room in
+            the abstract &mdash; it means nobody would be <em>better off swapping places with
+            you</em>, taking your room <em>and</em> your price.
+          </p>
+          <p>
+            Say your room costs $4,366.66 and a roommate says they'd value it at $4,500. That
+            sounds like they're being shortchanged &mdash; until you check what they'd give up:
+            if their own room nets them $133.33 (value minus what they pay), and swapping into
+            yours would net them $4,500 &minus; $4,366.66 = $133.34, they're not missing out on
+            anything &mdash; those numbers are, for all practical purposes, identical. Your room
+            costs a lot precisely <em>because</em> they also wanted it enough to bid it up that
+            high; the price rose until they stopped caring whether they got it or not.
+          </p>
+        </div>
+      </details>
+
+      <details>
+        <summary>If it's envy-free, does everyone get an equally good deal?</summary>
+        <div class="faq-body">
+          <p>
+            No &mdash; envy-free and <em>equitable</em> (everyone walking away equally happy) are
+            different things, and a split can be the first without being the second. Someone who
+            gets their favorite room can end up with hundreds of dollars more surplus than a
+            roommate who settles for their second choice, and the split can still be fully
+            envy-free: what matters is that nobody wants to trade places, not that everyone's deal
+            is equally sweet.
+          </p>
+        </div>
+      </details>
+
+      <details>
+        <summary>What if I have a hard budget limit, not just a preference?</summary>
+        <div class="faq-body">
+          <p>
+            This tool (like essentially every rent-division method, including the NYT calculator)
+            assumes a dollar is worth the same to you no matter how many you have &mdash; so
+            "value minus price" is a single comparable number. A hard budget doesn't work that
+            way: below your limit it's a normal trade-off, and at your limit a room becomes
+            completely unavailable, not just "less good." The math here can't see that cliff.
+          </p>
+          <p>
+            If a room being above your real budget would matter to you, don't enter your abstract
+            enjoyment of it &mdash; cap your number for it at the most you'd actually pay, even if
+            you'd love it more than that in the abstract. Otherwise the tool might assign it to
+            you anyway.
+          </p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Why does "ask us one at a time" sometimes take several rounds?</summary>
+        <div class="faq-body">
+          <p>
+            Because a round where nobody wants to switch can still be wrong &mdash; at a coarse
+            price step, two people with close-but-different preferences can settle into a
+            pairing that looks stable but isn't the best one (a full swap would make both of them
+            happier, the price gaps just weren't fine enough yet to reveal it). So a round is only
+            offered as a "settled" checkpoint once the same pairing repeats several rounds in a
+            row; if it hasn't, the tool quietly narrows the price step and asks everyone again
+            rather than locking in a result that might be wrong. When preferences are close,
+            refining a few more times past the first checkpoint is worth doing.
+          </p>
+        </div>
+      </details>
+    </div>
+  </section>
+
   <footer class="site-footer">
     <p>
       Every roommate splits the total rent across the rooms the way they value them. This tool finds
