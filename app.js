@@ -142,12 +142,17 @@ function initInteractive() {
   const n = state.n;
   const base = state.totalRent / n;
   state.interactive = {
-    prices: new Array(n).fill(base),
+    rawPrices: new Array(n).fill(base), // auction-internal; see bumpRoomPrice
+    prices: new Array(n).fill(base), // what's shown and paid; always sums to totalRent
     owner: new Array(n).fill(-1), // room index -> person index, -1 = unclaimed
     holds: new Array(n).fill(-1), // person index -> room index, -1 = none yet
     queue: Array.from({ length: n }, (_, i) => i),
     delta: initialDelta(state.totalRent, n),
+    initialDelta: initialDelta(state.totalRent, n),
     round: 1,
+    seenThisRound: new Set(), // situations seen since the round (or step size) began; see checkForCycle
+    lockClaimed: false, // true once bidding is known not to settle; see checkForCycle
+    settledAtFloor: false, // the current result came from lockClaimed, so it may not be envy-free
     converged: false,
     log: [],
     assignmentHistory: [],
@@ -163,28 +168,97 @@ function initialDelta(totalRent, n) {
   return Math.max(d, 1);
 }
 
-function normalizeInteractivePrices() {
-  const iv = state.interactive;
-  const sum = iv.prices.reduce((a, b) => a + b, 0);
-  const shift = (state.totalRent - sum) / state.n;
-  iv.prices = rebalanceToFloor(iv.prices.map((p) => p + shift), state.totalRent);
+/* Rent is a fixed pie, so what's on screen should always be a valid split that sums to the
+ * total rent, with no room below $0 — not just at checkpoints.
+ *
+ * The auction itself, though, runs on separate "raw" prices where a bump only ever raises the
+ * contested room and leaves every other room alone. That's the textbook ascending auction,
+ * and it's what guarantees the bidding ends: raw prices only go up, and nobody will chase a
+ * room past what it's worth to them. The displayed prices are the raw ones shifted down by
+ * one shared amount until they sum to the total rent (displayPrices) — a shared shift doesn't
+ * change the gap between any two rooms, so nobody's choice changes either.
+ *
+ * An earlier version instead funded each raise by cutting the other rooms' prices directly,
+ * proportionally, floored at $0. That distorts the gaps between rooms: once a room is pinned
+ * at $0, a raise on one room comes almost entirely out of another, so someone torn between
+ * those two gets pushed back and forth between them and the bidding can go on forever. */
+function displayPrices(raw, totalRent) {
+  const n = raw.length;
+  const active = new Array(n).fill(true);
+  let shift = 0;
+  // Water-filling: a room whose shifted price would go below $0 shows $0 instead, and the
+  // shift is recomputed over the remaining rooms. Removing a room only raises the shift, so
+  // rooms that were fine stay fine, and this settles within n passes.
+  for (let pass = 0; pass < n; pass++) {
+    let sum = 0;
+    let count = 0;
+    for (let i = 0; i < n; i++) {
+      if (active[i]) {
+        sum += raw[i];
+        count++;
+      }
+    }
+    shift = (totalRent - sum) / count;
+    let changed = false;
+    for (let i = 0; i < n; i++) {
+      if (active[i] && raw[i] + shift < 0) {
+        active[i] = false;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return distributeCents(raw.map((r, i) => (active[i] ? r + shift : 0)), totalRent);
 }
 
-/* Rent is a fixed pie: raising one room's price has to come from somewhere. Spreading the
- * offsetting decrease evenly across every other room (instead of just letting the contested
- * room's price climb on its own, to be reconciled only once at the end) keeps prices summing
- * to the total rent at every single step — not just at checkpoints — so what's on screen is
- * always a valid, budget-balanced split, and no single room can run away unchecked while the
- * correction is deferred. No room's price is allowed below $0 either: if enough conflicts
- * pile onto one room, the rooms funding the decrease floor out at $0 instead of going
- * negative, and rebalanceToFloor pulls any remaining shortfall from whichever rooms still
- * have room above $0. */
 function bumpRoomPrice(roomIdx, delta) {
   const iv = state.interactive;
-  const n = iv.prices.length;
-  const share = delta / (n - 1);
-  const raw = iv.prices.map((p, k) => (k === roomIdx ? p + delta : p - share));
-  iv.prices = rebalanceToFloor(raw, state.totalRent);
+  iv.rawPrices[roomIdx] += delta;
+  iv.prices = displayPrices(iv.rawPrices, state.totalRent);
+}
+
+/* The $0 floor still leaves two ways for bidding to go in circles, both visible as the exact
+ * same situation (holders, prices, queue) coming around again within a round:
+ *  - The step is too coarse: the price window where someone would stop switching is
+ *    narrower than one step, so they hop over it each time. Halving the step mid-round fixes
+ *    it (a round only ends once nobody's bumped, so waiting for the round to end won't).
+ *  - No envy-free split exists with every room at $0 or more: some room is so unpopular that
+ *    only negative rent would make anyone happy to take it. Then nothing settles at any step
+ *    size. Like the matrix solver, we keep that room at $0 and accept a little envy: rooms
+ *    already claimed are locked, and whoever's left picks from what's unclaimed.
+ * Once the step is down to MIN_DELTA_FRACTION of where it started and it's still circling,
+ * it's treated as the second case. */
+const MIN_DELTA_FRACTION = 1 / 16;
+
+function checkForCycle() {
+  const iv = state.interactive;
+  if (iv.queue.length === 0 || iv.lockClaimed) return;
+  const key = `${iv.holds.join(',')}|${iv.prices.join(',')}|${iv.queue.join(',')}`;
+  if (!iv.seenThisRound.has(key)) {
+    iv.seenThisRound.add(key);
+    return;
+  }
+  iv.seenThisRound.clear();
+  if (iv.delta / 2 >= iv.initialDelta * MIN_DELTA_FRACTION) {
+    iv.delta = iv.delta / 2;
+    iv.log.unshift(
+      `Prices are going back and forth — switching to smaller steps (${fmtMoney(iv.delta)}) to find where everyone settles.`
+    );
+  } else {
+    iv.lockClaimed = true;
+    iv.log.unshift(
+      'Prices can’t settle without some room going below $0, so claimed rooms are now locked in — whoever’s left picks from the rooms nobody has taken.'
+    );
+  }
+}
+
+function startNextRound() {
+  const iv = state.interactive;
+  iv.delta = iv.delta / 2;
+  iv.round += 1;
+  iv.lockClaimed = false;
+  iv.seenThisRound = new Set();
+  iv.queue = Array.from({ length: state.n }, (_, i) => i);
 }
 
 function handleBid(personIdx, roomIdx) {
@@ -214,24 +288,26 @@ function handleBid(personIdx, roomIdx) {
     );
   }
 
+  checkForCycle();
+
   if (iv.queue.length === 0) {
-    normalizeInteractivePrices();
     iv.assignmentHistory.push(iv.holds.slice());
     const recent = iv.assignmentHistory.slice(-CONVERGENCE_STREAK);
     const stable =
       recent.length === CONVERGENCE_STREAK &&
       recent.every((a) => a.every((room, i) => room === recent[0][i]));
+    // A locked-in round won't get any better by re-asking (it would just circle again), so
+    // it goes straight to the checkpoint instead of waiting for a streak.
+    iv.settledAtFloor = iv.lockClaimed;
 
-    if (stable) {
+    if (stable || iv.settledAtFloor) {
       iv.converged = true;
       state.step = 'interactive-checkpoint';
     } else {
       iv.log.unshift(
         `Round ${iv.round} settled — double-checking at a finer resolution before calling it final.`
       );
-      iv.delta = iv.delta / 2;
-      iv.round += 1;
-      iv.queue = Array.from({ length: state.n }, (_, i) => i);
+      startNextRound();
     }
   }
   render();
@@ -254,8 +330,9 @@ function renderInteractiveTurn() {
     for (let j = 0; j < state.n; j++) {
       const isHeldByRow = iv.holds[i] === j;
       if (isActive) {
-        cells += `<td class="active-cell"><button class="room-choice-cell ${isHeldByRow ? 'current' : ''}" data-room="${j}">
-          ${fmtMoney(iv.prices[j])}<span class="tag">${isHeldByRow ? 'yours now' : ''}</span>
+        const locked = iv.lockClaimed && !isHeldByRow && iv.owner[j] !== -1;
+        cells += `<td class="active-cell"><button class="room-choice-cell ${isHeldByRow ? 'current' : ''}" data-room="${j}" ${locked ? 'disabled' : ''}>
+          ${fmtMoney(iv.prices[j])}<span class="tag">${isHeldByRow ? 'yours now' : locked ? 'locked' : ''}</span>
         </button></td>`;
       } else {
         cells += `<td class="matrix-cell ${isHeldByRow ? 'held-cell' : ''}">
@@ -281,7 +358,7 @@ function renderInteractiveTurn() {
           <tbody>${bodyRows}</tbody>
         </table>
       </div>
-      ${iv.log.length ? `<h3>What's happened so far</h3><ul class="auction-log">${iv.log.slice(0, 6).map((l) => `<li>${l}</li>`).join('')}</ul>` : ''}
+      ${iv.log.length ? `<h3>What's happened so far</h3><ul class="auction-log">${iv.log.slice(0, 6).map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>` : ''}
       <div class="actions">
         <button class="secondary" id="start-over">Start over</button>
       </div>
@@ -313,16 +390,22 @@ function renderInteractiveCheckpoint() {
   }
   const priceSum = iv.prices.reduce((a, b) => a + b, 0);
 
-  root.innerHTML = `
-    <section class="card">
-      <h2>Everyone's settled — round ${iv.round}</h2>
-      <p class="hint">
-        Nobody has wanted to switch rooms across the last ${CONVERGENCE_STREAK} checks in a row, at a
+  const explanation = iv.settledAtFloor
+    ? `Prices couldn't fully settle: at least one room is unpopular enough that nobody would be
+        happy taking it unless its rent went below $0. Rent can't be negative, so that room is held
+        at $0 and claimed rooms were locked in — the split adds up and nobody pays less than $0,
+        but someone may still prefer another room at these prices. Asking again would just circle
+        back here.`
+    : `Nobody has wanted to switch rooms across the last ${CONVERGENCE_STREAK} checks in a row, at a
         resolution of about ${fmtMoney(iv.delta)} per room. That's our best current estimate — if
         anyone's preferences are genuinely close, refining further could occasionally still change
         who gets which room, not just the exact price, so when in doubt, refine a bit more before
-        locking it in.
-      </p>
+        locking it in.`;
+
+  root.innerHTML = `
+    <section class="card">
+      <h2>${iv.settledAtFloor ? 'As close as it gets' : 'Everyone’s settled'} — round ${iv.round}</h2>
+      <p class="hint">${explanation}</p>
       <div class="table-wrap">
         <table class="results-table">
           <thead><tr><th>Roommate</th><th>Gets</th><th>Pays / month</th></tr></thead>
@@ -331,16 +414,14 @@ function renderInteractiveCheckpoint() {
         </table>
       </div>
       <div class="actions">
-        <button class="secondary" id="refine">Refine further (±${fmtMoney(iv.delta / 2)})</button>
+        ${iv.settledAtFloor ? '<span></span>' : `<button class="secondary" id="refine">Refine further (±${fmtMoney(iv.delta / 2)})</button>`}
         <button class="primary" id="use-split">Use this split →</button>
       </div>
     </section>
   `;
 
-  el('refine').addEventListener('click', () => {
-    iv.delta = iv.delta / 2;
-    iv.round += 1;
-    iv.queue = Array.from({ length: state.n }, (_, i) => i);
+  el('refine')?.addEventListener('click', () => {
+    startNextRound();
     iv.converged = false;
     state.step = 'interactive-turn';
     render();
@@ -370,8 +451,12 @@ function renderInteractiveResults() {
     <section class="card">
       <h2>3. Your split</h2>
       <p class="hint">
-        Reached by ${iv.round} round${iv.round === 1 ? '' : 's'} of asking, stable across the last
-        ${CONVERGENCE_STREAK} checks in a row at a resolution of about ${fmtMoney(iv.delta)} per room.
+        ${iv.settledAtFloor
+          ? `Reached by ${iv.round} round${iv.round === 1 ? '' : 's'} of asking. One room is held at
+            $0 because no non-negative prices could make everyone happy, so someone may still prefer
+            another room at these prices.`
+          : `Reached by ${iv.round} round${iv.round === 1 ? '' : 's'} of asking, stable across the last
+            ${CONVERGENCE_STREAK} checks in a row at a resolution of about ${fmtMoney(iv.delta)} per room.`}
       </p>
       <div class="table-wrap">
         <table class="results-table">
@@ -420,7 +505,8 @@ function fmtMoney(x) {
 /* Rounds a list of dollar amounts to the nearest cent while keeping their sum exactly
  * equal to targetTotal (to the cent) — otherwise independently-rounded room prices can
  * visibly fail to add up (e.g. 933.33 + 933.33 + 1133.33 = 2999.99) even though the
- * underlying, unrounded numbers are exact. Uses the largest-remainder method. */
+ * underlying, unrounded numbers are exact. Uses the largest-remainder method. A cent is
+ * never taken from a room already at $0, so this can't undo floorContinuous's floor. */
 function distributeCents(amounts, targetTotal) {
   const cents = amounts.map((a) => Math.round(a * 100));
   const targetCents = Math.round(targetTotal * 100);
@@ -431,17 +517,20 @@ function distributeCents(amounts, targetTotal) {
       .sort((a, b) => (diff > 0 ? b.frac - a.frac : a.frac - b.frac));
     let remaining = Math.abs(diff);
     let k = 0;
-    while (remaining > 0) {
-      cents[order[k % order.length].i] += diff > 0 ? 1 : -1;
-      remaining--;
+    while (remaining > 0 && k < order.length * (remaining + 1)) {
+      const idx = order[k % order.length].i;
+      if (diff > 0 || cents[idx] > 0) {
+        cents[idx] += diff > 0 ? 1 : -1;
+        remaining--;
+      }
       k++;
     }
   }
   return cents.map((c) => c / 100);
 }
 
-/* No room's rent should go below $0. A raw computation (a big shift, or a room repeatedly
- * absorbing decreases from conflicts elsewhere) can push a price negative; when that
+/* No room's rent should go below $0. The matrix solver's shift to the total rent can push a
+ * price negative (very lopsided valuations); when that
  * happens, floor it at 0 and pull the shortfall back proportionally from every room that's
  * still above 0, repeating until nothing is negative. Sum stays exactly totalRent throughout
  * (each floored amount is fully re-collected from the rest), and this always terminates
@@ -474,10 +563,6 @@ function floorContinuous(rawAmounts, totalRent) {
   return amounts;
 }
 
-function rebalanceToFloor(rawAmounts, totalRent) {
-  return distributeCents(floorContinuous(rawAmounts, totalRent), totalRent);
-}
-
 function renderSetup() {
   const root = el('app');
   root.innerHTML = `
@@ -486,7 +571,11 @@ function renderSetup() {
       <div class="field-row">
         <label class="field">
           <span>Total monthly rent</span>
-          <input type="number" id="rent" min="0" step="1" value="${state.totalRent}">
+          <span class="money-input">
+            <span class="money-prefix" aria-hidden="true">$</span>
+            <input type="number" id="rent" min="1" step="1" inputmode="decimal" value="${state.totalRent}" aria-describedby="rent-error">
+          </span>
+          <span class="field-error" id="rent-error" hidden>Enter a total rent above $0.</span>
         </label>
       </div>
       <div id="names-grid" class="names-grid"></div>
@@ -519,9 +608,9 @@ function renderSetup() {
       const row = document.createElement('div');
       row.className = 'names-grid-row';
       row.innerHTML = `
-        <input type="text" data-idx="${i}" class="name-input" placeholder="Roommate ${i + 1}" value="${state.names[i] || ''}">
-        <input type="text" data-idx="${i}" class="room-input" placeholder="Room ${i + 1}" value="${state.rooms[i] || ''}">
-        <button type="button" class="remove-roommate" data-idx="${i}" title="Remove roommate" ${state.n <= 2 ? 'disabled' : ''}>&times;</button>
+        <input type="text" data-idx="${i}" class="name-input" placeholder="Roommate ${i + 1}" aria-label="Roommate ${i + 1} name" value="${escapeHtml(state.names[i] || '')}">
+        <input type="text" data-idx="${i}" class="room-input" placeholder="Room ${i + 1}" aria-label="Room ${i + 1} name" value="${escapeHtml(state.rooms[i] || '')}">
+        <button type="button" class="remove-roommate" data-idx="${i}" title="Remove roommate" aria-label="Remove roommate ${i + 1}" ${state.n <= 2 ? 'disabled' : ''}>&times;</button>
       `;
       namesGrid.appendChild(row);
     }
@@ -541,6 +630,19 @@ function renderSetup() {
         const idx = Number(e.currentTarget.dataset.idx);
         state.names.splice(idx, 1);
         state.rooms.splice(idx, 1);
+        // Blank names were filled with numbered defaults ("Room 3") on Next. Rows below the
+        // removed one shift up, so clear those defaults to be renumbered — otherwise a later
+        // default can collide with a shifted one (two "Room 3"s).
+        for (let k = idx; k < state.n - 1; k++) {
+          if (state.names[k] === `Roommate ${k + 2}`) state.names[k] = '';
+          if (state.rooms[k] === `Room ${k + 2}`) state.rooms[k] = '';
+        }
+        // Each roommate brings one room, so drop both their valuation row and that room's
+        // column — otherwise everyone below shifts up into the wrong row of numbers.
+        if (state.values) {
+          state.values.splice(idx, 1);
+          state.values.forEach((row) => row.splice(idx, 1));
+        }
         state.n -= 1;
         renderNameInputs();
       });
@@ -554,12 +656,23 @@ function renderSetup() {
     if (state.n >= 10) return;
     state.names.push('');
     state.rooms.push('');
+    if (state.values) {
+      state.values.forEach((row) => row.push(0));
+      state.values.push(new Array(state.n + 1).fill(0));
+    }
     state.n += 1;
     renderNameInputs();
   });
 
-  el('rent').addEventListener('input', (e) => {
-    state.totalRent = Number(e.target.value) || 0;
+  const rentInput = el('rent');
+  const rentError = el('rent-error');
+  function showRentError(show) {
+    rentError.hidden = !show;
+    rentInput.setAttribute('aria-invalid', show ? 'true' : 'false');
+  }
+  rentInput.addEventListener('input', (e) => {
+    state.totalRent = Math.max(0, Number(e.target.value) || 0);
+    if (state.totalRent > 0) showRentError(false);
   });
 
   root.querySelectorAll('input[name="mode"]').forEach((input) => {
@@ -569,6 +682,11 @@ function renderSetup() {
   });
 
   el('next-step').addEventListener('click', () => {
+    if (!(state.totalRent > 0)) {
+      showRentError(true);
+      rentInput.focus();
+      return;
+    }
     for (let i = 0; i < state.n; i++) {
       if (!state.names[i].trim()) state.names[i] = `Roommate ${i + 1}`;
       if (!state.rooms[i].trim()) state.rooms[i] = `Room ${i + 1}`;
@@ -627,7 +745,7 @@ function renderValues() {
       input.addEventListener('input', (e) => {
         const i = Number(e.target.dataset.i);
         const j = Number(e.target.dataset.j);
-        state.values[i][j] = Number(e.target.value) || 0;
+        state.values[i][j] = Math.max(0, Number(e.target.value) || 0);
         updateRowTotal(i);
       });
     });
@@ -737,10 +855,14 @@ function renderResults() {
   });
 }
 
+// Escapes quotes too, so the result is safe inside attribute values (value="...") as well as text.
 function escapeHtml(str) {
-  const d = document.createElement('div');
-  d.textContent = str;
-  return d.innerHTML;
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function render() {
